@@ -1,4 +1,6 @@
 # `#[real_async_trait]`
+[![Build Status](https://travis-ci.org/4lDO2/real-async-trait-rs.svg?branch=master)](https://travis-ci.org/4lDO2/real-async-trait-rs)
+
 This crate provides a proof-of-concept proc macro attribute that allows async
 traits to be possible, without wrapping everything in a `Box` and erase the
 types. This is made possible due to experimental `generic_associated_types`
