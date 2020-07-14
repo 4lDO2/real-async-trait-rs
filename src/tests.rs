@@ -1,11 +1,6 @@
-use proc_macro2::TokenStream;
-use quote::quote;
-
-use crate::real_async_trait2;
-
 #[test]
 fn correct_trait_output() {
-    let input = quote! {
+    let input = quote::quote! {
         pub trait RedoxScheme {
             async fn open<'a>(&'a mut self, path: &'a [u8], flags: usize) -> Result<usize, Errno>;
             async fn read<'a>(&'a mut self, fd: usize, buf: &'a mut [u8]) -> Result<usize, Errno>;
@@ -13,7 +8,7 @@ fn correct_trait_output() {
             async fn close<'a>(&'a mut self, fd: usize) -> Result<(), Errno>;
         }
     };
-    let expected_output = quote! {
+    let expected_output = quote::quote! {
         pub trait RedoxScheme {
             fn open<'a>(&'a mut self, path: &'a [u8], flags: usize) -> Self::__real_async_trait_impl_TypeFor_open<'a>;
             fn read<'a>(&'a mut self, fd: usize, buf: &'a mut [u8]) -> Self::__real_async_trait_impl_TypeFor_read<'a>;
@@ -26,7 +21,7 @@ fn correct_trait_output() {
             type __real_async_trait_impl_TypeFor_close<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a;
         }
     };
-    let actual_output = real_async_trait2(TokenStream::new(), input);
+    let actual_output = crate::real_async_trait2(proc_macro2::TokenStream::new(), input);
 
     // TODO: Any better way to do this?
     let expected_output_trait = syn::parse2::<syn::Item>(expected_output).unwrap();
@@ -36,7 +31,7 @@ fn correct_trait_output() {
 }
 #[test]
 fn correct_impl_output() {
-    let input = quote! {
+    let input = quote::quote! {
         impl RedoxScheme for MyType {
             async fn open<'a>(&'a mut self, path: &'a [u8], flags: usize) -> Result<usize, Errno> {
                 Ok(0)
@@ -52,7 +47,7 @@ fn correct_impl_output() {
             }
         }
     };
-    let expected_output = quote! {
+    let expected_output = quote::quote! {
         mod __real_async_trait_impl {
             use super::*;
             impl RedoxScheme for MyType {
@@ -80,7 +75,7 @@ fn correct_impl_output() {
             type __real_async_trait_impl_ExistentialTypeFor_close<'a> = impl ::core::future::Future<Output = Result<(), Errno>> + 'a;
         }
     };
-    let actual_output = real_async_trait2(TokenStream::new(), input);
+    let actual_output = crate::real_async_trait2(proc_macro2::TokenStream::new(), input);
 
     // TODO: Any better way to do this?
     let expected_output_trait = syn::parse2::<syn::Item>(expected_output).unwrap();
