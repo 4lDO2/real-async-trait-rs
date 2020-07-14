@@ -21,14 +21,14 @@ struct NumberScheme {
 
 #[real_async_trait]
 impl AsyncScheme for NumberScheme {
-    async fn open(&mut self, path: &[u8], _flags: usize) -> Result<usize, Errno> {
-        todo!()
+    async fn open<'a, 'b>(&'a mut self, path: &'b [u8], _flags: usize) -> Result<usize, Errno> {
+        Ok(0)
     }
-    async fn close(&mut self, fd: usize) -> Result<(), Errno> {
-        todo!()
+    async fn close<'a>(&'a mut self, fd: usize) -> Result<(), Errno> {
+        Err(EBADF)
     }
-    async fn read(&mut self, num: &mut u64) -> Result<(), Errno> {
-        todo!()
+    async fn read<'a, 'b>(&'a mut self, num: &'b mut u64) -> Result<(), Errno> {
+        Err(ENOENT)
     }
 }
 

@@ -1,17 +1,18 @@
 extern crate proc_macro;
 
-use std::iter;
 use std::str::FromStr;
+use std::{iter, mem};
 
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::punctuated::Punctuated;
 use syn::token;
 use syn::{
-    AngleBracketedGenericArguments, Binding, FnArg, GenericArgument, GenericParam, Generics, Ident,
-    ItemImpl, ItemTrait, Lifetime, LifetimeDef, PatType, Path, PathArguments, PathSegment,
-    ReturnType, Token, TraitBound, TraitBoundModifier, TraitItem, TraitItemType, Type,
-    TypeParamBound, TypePath, TypeReference, TypeTuple,
+    AngleBracketedGenericArguments, Binding, Block, Expr, ExprAsync, FnArg, GenericArgument,
+    GenericParam, Generics, Ident, ImplItem, ImplItemType, ItemImpl, ItemTrait, ItemType, Lifetime,
+    LifetimeDef, PatType, Path, PathArguments, PathSegment, ReturnType, Signature, Stmt, Token,
+    TraitBound, TraitBoundModifier, TraitItem, TraitItemType, Type, TypeImplTrait, TypeParamBound,
+    TypePath, TypeReference, TypeTuple, VisRestricted, Visibility,
 };
 
 struct LifetimeVisitor;
@@ -25,9 +26,181 @@ impl<'ast> syn::visit::Visit<'ast> for LifetimeVisitor {
 }
 
 fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
-    // FIXME
+    let mut existential_type_defs = Vec::new();
+    let mut gat_defs = Vec::new();
+
+    for method in item
+        .items
+        .iter_mut()
+        .filter_map(|item| {
+            if let ImplItem::Method(method) = item {
+                Some(method)
+            } else {
+                None
+            }
+        })
+        .filter(|method| method.sig.asyncness.is_some())
+    {
+        method.sig.asyncness = None;
+
+        validate_that_function_always_has_lifetimes(&method.sig);
+
+        let (toplevel_lifetimes, function_lifetimes) =
+            already_defined_lifetimes(&item.generics, &method.sig.generics);
+
+        let existential_type_name = format!(
+            "__real_async_trait_impl_ExistentialTypeFor_{}",
+            method.sig.ident
+        );
+        let existential_type_ident = Ident::new(&existential_type_name, Span::call_site());
+
+        existential_type_defs.push(ItemType {
+            attrs: Vec::new(),
+            eq_token: Token!(=)(Span::call_site()),
+            generics: Generics {
+                gt_token: Some(Token!(>)(Span::call_site())),
+                lt_token: Some(Token!(<)(Span::call_site())),
+                params: toplevel_lifetimes
+                    .iter()
+                    .cloned()
+                    .map(GenericParam::Lifetime)
+                    .collect(),
+                where_clause: None,
+            },
+            ident: existential_type_ident,
+            semi_token: Token!(;)(Span::call_site()),
+            vis: Visibility::Restricted(VisRestricted {
+                in_token: None,
+                paren_token: token::Paren {
+                    span: Span::call_site(),
+                },
+                pub_token: Token!(pub)(Span::call_site()),
+                path: Box::new(Path {
+                    leading_colon: None,
+                    segments: iter::once(PathSegment {
+                        arguments: PathArguments::None,
+                        ident: Ident::new("super", Span::call_site()),
+                    })
+                    .collect(),
+                }),
+            }),
+            ty: Box::new(Type::ImplTrait(TypeImplTrait {
+                bounds: iter::once(TypeParamBound::Trait(future_trait_bound(return_type(
+                    method.sig.output.clone(),
+                ))))
+                .chain(
+                    toplevel_lifetimes
+                        .iter()
+                        .cloned()
+                        .map(|lifetime_def| TypeParamBound::Lifetime(lifetime_def.lifetime)),
+                )
+                .collect(),
+                impl_token: Token!(impl)(Span::call_site()),
+            })),
+            type_token: Token!(type)(Span::call_site()),
+        });
+
+        let existential_type_path_for_impl = Path {
+            // self::__real_async_trait_impl::__real_async_trait_impl_ExistentialTypeFor_FUNCTIONNAME
+            leading_colon: None,
+            segments: vec![
+                PathSegment {
+                    arguments: PathArguments::None,
+                    ident: Ident::new("self", Span::call_site()),
+                },
+                PathSegment {
+                    arguments: PathArguments::None,
+                    ident: Ident::new("__real_async_trait_impl", Span::call_site()),
+                },
+                PathSegment {
+                    arguments: PathArguments::AngleBracketed(lifetime_angle_bracketed_bounds(
+                        toplevel_lifetimes
+                            .into_iter()
+                            .map(|lifetime_def| lifetime_def.lifetime),
+                    )),
+                    ident: Ident::new(&existential_type_name, Span::call_site()),
+                },
+            ]
+            .into_iter()
+            .collect(),
+        };
+        let existential_path_type = Type::Path(TypePath {
+            path: existential_type_path_for_impl,
+            qself: None,
+        });
+
+        let gat_ident = gat_ident_for_sig(&method.sig);
+
+        gat_defs.push(ImplItemType {
+            attrs: Vec::new(),
+            defaultness: None,
+            eq_token: Token!(=)(Span::call_site()),
+            generics: Generics {
+                lt_token: Some(Token!(<)(Span::call_site())),
+                gt_token: Some(Token!(>)(Span::call_site())),
+                where_clause: None,
+                params: function_lifetimes
+                    .iter()
+                    .cloned()
+                    .map(GenericParam::Lifetime)
+                    .collect(),
+            },
+            ident: gat_ident.clone(),
+            semi_token: Token!(;)(Span::call_site()),
+            ty: existential_path_type.clone(),
+            type_token: Token!(type)(Span::call_site()),
+            vis: Visibility::Inherited,
+        });
+
+        let gat_self_type = self_gat_type(
+            gat_ident,
+            function_lifetimes
+                .into_iter()
+                .map(|lifetime_def| lifetime_def.lifetime),
+        );
+
+        method.sig.output = ReturnType::Type(
+            Token!(->)(Span::call_site()),
+            Box::new(gat_self_type.into()),
+        );
+
+        let method_stmts = mem::replace(&mut method.block.stmts, Vec::new());
+
+        method.block.stmts = vec![Stmt::Expr(Expr::Async(ExprAsync {
+            async_token: Token!(async)(Span::call_site()),
+            attrs: Vec::new(),
+            block: Block {
+                brace_token: token::Brace {
+                    span: Span::call_site(),
+                },
+                stmts: method_stmts,
+            },
+            capture: Some(Token!(move)(Span::call_site())),
+        }))];
+    }
+
+    item.items.extend(gat_defs.into_iter().map(Into::into));
+
     quote! {
-        //#item
+        #item
+
+        mod __real_async_trait_impl {
+            use super::*;
+
+            #(#existential_type_defs)*
+        }
+    }
+}
+
+fn return_type(retval: ReturnType) -> Type {
+    match retval {
+        ReturnType::Default => Type::Tuple(TypeTuple {
+            elems: Punctuated::new(),
+            paren_token: token::Paren {
+                span: Span::call_site(),
+            },
+        }),
+        ReturnType::Type(_, ty) => *ty,
     }
 }
 
@@ -67,6 +240,81 @@ fn future_trait_bound(fn_output_ty: Type) -> TraitBound {
     }
 }
 
+fn validate_that_function_always_has_lifetimes(signature: &Signature) {
+    for input in signature.inputs.iter() {
+        match input {
+            FnArg::Receiver(ref recv) => {
+                if let Some((_ampersand, _lifetime @ None)) = &recv.reference {
+                    panic!("{}self parameter lacked an explicit lifetime, which is required by this proc macro", if recv.mutability.is_some() { "&mut " } else { "&" });
+                }
+            }
+            FnArg::Typed(PatType { ref ty, .. }) => {
+                syn::visit::visit_type(&mut LifetimeVisitor, ty)
+            }
+        }
+    }
+    if let ReturnType::Type(_, ref ty) = signature.output {
+        syn::visit::visit_type(&mut LifetimeVisitor, ty);
+    };
+}
+fn already_defined_lifetimes(
+    toplevel_generics: &Generics,
+    method_generics: &Generics,
+) -> (Vec<LifetimeDef>, Vec<LifetimeDef>) {
+    //Global scope
+    //let mut lifetimes = vec! [LifetimeDef::new(Lifetime::new("'static", Span::call_site()))];
+
+    let mut lifetimes = Vec::new();
+    // Trait definition scope
+    lifetimes.extend(toplevel_generics.lifetimes().cloned());
+    // Function definition scope
+    let function_lifetimes = method_generics.lifetimes().cloned().collect::<Vec<_>>();
+    lifetimes.extend(function_lifetimes.iter().cloned());
+    (lifetimes, function_lifetimes)
+}
+fn lifetime_angle_bracketed_bounds(
+    lifetimes: impl IntoIterator<Item = Lifetime>,
+) -> AngleBracketedGenericArguments {
+    AngleBracketedGenericArguments {
+        colon2_token: None,
+        lt_token: Token!(<)(Span::call_site()),
+        gt_token: Token!(>)(Span::call_site()),
+        args: lifetimes
+            .into_iter()
+            .map(|lifetime_def| GenericArgument::Lifetime(lifetime_def))
+            .collect(),
+    }
+}
+fn gat_ident_for_sig(sig: &Signature) -> Ident {
+    let gat_name = format!("__real_async_trait_impl_TypeFor_{}", sig.ident);
+    Ident::new(&gat_name, Span::call_site())
+}
+fn self_gat_type(
+    gat_ident: Ident,
+    function_lifetimes: impl IntoIterator<Item = Lifetime>,
+) -> TypePath {
+    TypePath {
+        path: Path {
+            // represents the pattern Self::GAT_NAME...
+            leading_colon: None,
+            segments: vec![
+                PathSegment {
+                    ident: Ident::new("Self", Span::call_site()),
+                    arguments: PathArguments::None,
+                },
+                PathSegment {
+                    ident: gat_ident,
+                    arguments: PathArguments::AngleBracketed(lifetime_angle_bracketed_bounds(
+                        function_lifetimes,
+                    )),
+                },
+            ]
+            .into_iter()
+            .collect(),
+        },
+        qself: None,
+    }
+}
 fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
     let mut new_gat_items = Vec::new();
 
@@ -89,52 +337,21 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
         // Check that all types have a lifetime that is either specific to the trait item, or
         // to the current function (or 'static). Any other lifetime will and must produce a
         // compiler error.
-        let (function_lifetimes, already_defined_lifetimes) = {
-            //Global scope
-            //let mut lifetimes = vec! [LifetimeDef::new(Lifetime::new("'static", Span::call_site()))];
+        let gat_ident = gat_ident_for_sig(&method.sig);
 
-            let mut lifetimes = Vec::new();
-            // Trait definition scope
-            lifetimes.extend(item.generics.lifetimes().cloned());
-            // Function definition scope
-            let function_lifetimes = method.sig.generics.lifetimes().cloned().collect::<Vec<_>>();
-            lifetimes.extend(function_lifetimes.iter().cloned());
-            (function_lifetimes, lifetimes)
-        };
+        let method_return_ty = return_type(method.sig.output.clone());
 
-        let method_return_ty = match method.sig.output {
-            ReturnType::Default => Box::new(Type::Tuple(TypeTuple {
-                elems: Punctuated::new(),
-                paren_token: token::Paren {
-                    span: Span::call_site(),
-                },
-            })),
-            ReturnType::Type(_, ref ty) => ty.clone(),
-        };
-
-        for input in method.sig.inputs.iter() {
-            match input {
-                FnArg::Receiver(ref recv) => {
-                    if let Some((_ampersand, _lifetime @ None)) = &recv.reference {
-                        panic!("{}self parameter lacked an explicit lifetime, which is required by this proc macro", if recv.mutability.is_some() { "&mut" } else { "&" });
-                    }
-                }
-                FnArg::Typed(PatType { ref ty, .. }) => {
-                    syn::visit::visit_type(&mut LifetimeVisitor, ty)
-                }
-            }
-        }
-        syn::visit::visit_type(&mut LifetimeVisitor, &method_return_ty);
+        validate_that_function_always_has_lifetimes(&method.sig);
 
         method.sig.asyncness = None;
 
-        let gat_name = format!("__real_async_trait_impl_TypeFor_{}", method.sig.ident);
-        let gat_ident = Ident::new(&gat_name, Span::call_site());
+        let (_toplevel_lifetimes, function_lifetimes) =
+            already_defined_lifetimes(&item.generics, &method.sig.generics);
 
         new_gat_items.push(TraitItemType {
             attrs: Vec::new(),
             type_token: Token!(type)(Span::call_site()),
-            bounds: iter::once(TypeParamBound::Trait(future_trait_bound(*method_return_ty)))
+            bounds: iter::once(TypeParamBound::Trait(future_trait_bound(method_return_ty)))
                 .collect(),
             colon_token: Some(Token!(:)(Span::call_site())),
             default: None,
@@ -143,7 +360,8 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
                 gt_token: Some(Token!(>)(Span::call_site())),
                 where_clause: None,
                 params: function_lifetimes
-                    .into_iter()
+                    .iter()
+                    .cloned()
                     .map(GenericParam::Lifetime)
                     .collect(),
             },
@@ -151,40 +369,16 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
             semi_token: Token!(;)(Span::call_site()),
         });
 
+        let self_gat_type = self_gat_type(
+            gat_ident,
+            function_lifetimes
+                .into_iter()
+                .map(|lifetime_def| lifetime_def.lifetime),
+        );
+
         method.sig.output = ReturnType::Type(
             Token!(->)(Span::call_site()),
-            Box::new(Type::Path(TypePath {
-                path: Path {
-                    // represents the pattern Self::GAT_NAME...
-                    leading_colon: None,
-                    segments: vec![
-                        PathSegment {
-                            ident: Ident::new("Self", Span::call_site()),
-                            arguments: PathArguments::None,
-                        },
-                        PathSegment {
-                            ident: gat_ident,
-                            arguments: PathArguments::AngleBracketed(
-                                AngleBracketedGenericArguments {
-                                    colon2_token: None,
-                                    lt_token: Token!(<)(Span::call_site()),
-                                    gt_token: Token!(>)(Span::call_site()),
-                                    args: already_defined_lifetimes
-                                        .iter()
-                                        .cloned()
-                                        .map(|lifetime_def| {
-                                            GenericArgument::Lifetime(lifetime_def.lifetime)
-                                        })
-                                        .collect(),
-                                },
-                            ),
-                        },
-                    ]
-                    .into_iter()
-                    .collect(),
-                },
-                qself: None,
-            })),
+            Box::new(self_gat_type.into()),
         );
     }
     item.items
@@ -192,9 +386,6 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
 
     quote! {
         #item
-
-        mod __real_async_trait_impl {
-        }
     }
 }
 
