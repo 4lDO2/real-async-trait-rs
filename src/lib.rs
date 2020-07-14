@@ -28,7 +28,7 @@
 //! correctly or at all. __Don't use this in production code!__
 //!
 //! ## Example
-//! ```rust
+//! ```ignore
 //! #[async_std::main]
 //! # async fn main() {
 //! /// An error code, similar to `errno` in C.
@@ -88,7 +88,7 @@
 //! that are the return types of the async fns in the trait definition. The macro will generate the
 //! following for the `RedoxScheme` trait (simplified generated names):
 //!
-//! ```rust
+//! ```ignore
 //! pub trait RedoxScheme {
 //!     // Downgraded functions, from async fn to fn. Their types have changed into a generic
 //!     // associated type.
@@ -107,7 +107,7 @@
 //!
 //! Meanwhile, the impls will get the following generated code (simplified here as well):
 //!
-//! ```rust
+//! ```ignore
 //!
 //! // Wrap everything in a private module to prevent the existential types from leaking.
 //! mod __private {
