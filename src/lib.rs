@@ -1,3 +1,156 @@
+//!
+//! # `#[real_async_trait]`
+//! [![travis]](https://travis-ci.org/4lDO2/real-async-trait-rs)
+//! [![cratesio]](https://crates.io/crates/real-async-trait)
+//! [![docsrs]](https://docs.rs/real-async-trait/)
+//!
+//! [travis]: https://travis-ci.org/4lDO2/real-async-trait-rs.svg?branch=master
+//! [cratesio]: https://img.shields.io/crates/v/real-async-trait.svg
+//! [docsrs]: https://docs.rs/real-async-trait/badge.svg
+//!
+//! This crate provides a producedural macro that works around the current limitation of not being
+//! able to put `async fn`s in a trait, _without type erasure_, by using experimental
+//! nightly-features, namely [generic associated types
+//! (GATs)](https://github.com/rust-lang/rfcs/blob/master/text/1598-generic_associated_types.md)
+//! and [existential
+//! types](https://github.com/rust-lang/rfcs/blob/master/text/2515-type_alias_impl_trait.md).
+//!
+//! ## Caveats
+//!
+//! While this proc macro will allow you to write non-type-erased allocation-free async fns within
+//! traits, there are a few caveats to this (non-exhaustive):
+//!
+//! * at the moment, all references used in the async fn, must be explicitly specified, either from
+//! the top-level of the trait, or in the function declaration;
+//! * there can only be a single lifetime in use simultaneously. I have no idea why, but it could
+//! be due to buggy interaction between existential types and generic associated types;
+//! * since GATs are an "incomplete" feature in rust, it may not be sound or just not compile
+//! correctly or at all. __Don't use this in production code!__
+//!
+//! ## Example
+//! ```rust
+//! #[async_std::main]
+//! # async fn main() {
+//! /// An error code, similar to `errno` in C.
+//! pub type Errno = usize;
+//!
+//! /// A UNIX-like file descriptor.
+//! pub type FileDescriptor = usize;
+//!
+//! /// "No such file or directory"
+//! pub const ENOENT: usize = 1;
+//!
+//! /// "Bad file descriptor"
+//! pub const EBADF: usize = 2;
+//!
+//! /// A filesystem-like primitive, used in the Redox Operating System.
+//! #[real_async_trait]
+//! pub trait RedoxScheme {
+//!     async fn open<'a>(&'a self, path: &'a [u8], flags: usize) -> Result<FileDescriptor, Errno>;
+//!     async fn read<'a>(&'a self, fd: FileDescriptor, buffer: &'a mut [u8]) -> Result<usize, Errno>;
+//!     async fn write<'a>(&'a self, fd: FileDescriptor, buffer: &'a [u8]) -> Result<usize, Errno>;
+//!     async fn close<'a>(&'a self, fd: FileDescriptor) -> Result<(), Errno>;
+//! }
+//!
+//! /// A scheme that does absolutely nothing.
+//! struct MyNothingScheme;
+//!
+//! #[real_async_trait]
+//! impl RedoxScheme for MyNothingScheme {
+//!     async fn open<'a>(&'a self, path: &'a [u8], flags: usize) -> Result<FileDescriptor, Errno> {
+//!         // I can write async code in here!
+//!         Err(ENOENT)
+//!     }
+//!     async fn read<'a>(&'a self, buffer: &'a mut [u8]) -> Result<usize, Errno> {
+//!         Err(EBADF)
+//!     }
+//!     async fn write<'a>(&'a self, path: &'a [u8]) -> Result<usize, Errno> {
+//!         Err(EBADF)
+//!     }
+//!     async fn close<'a>(&'a self, path: &'a [u8]) -> Result<(), Errno> {
+//!         Err(EBADF)
+//!     }
+//! }
+//!
+//! let my_nothing_scheme = MyNothingScheme;
+//!
+//! assert_eq!(my_nothing_scheme.open(b"nothing exists here", 0).await, Err(ENOENT), "why would anything exist here?");
+//! assert_eq!(my_nothing_scheme.read(1337, &mut []).await, Err(EBADF));
+//! assert_eq!(my_nothing_scheme.write(1337, &[]).await, Err(EBADF));
+//! assert_eq!(my_nothing_scheme.close(1337).await, Err(EBADF));
+//!
+//! # }
+//!
+//! ```
+//! ## How it works
+//!
+//! Under the hood, this proc macro will insert generic associated types (GATs) for the the futures
+//! that are the return types of the async fns in the trait definition. The macro will generate the
+//! following for the `RedoxScheme` trait (simplified generated names):
+//!
+//! ```rust
+//! pub trait RedoxScheme {
+//!     // Downgraded functions, from async fn to fn. Their types have changed into a generic
+//!     // associated type.
+//!     fn open<'a>(&'a self, path: &'a [u8], flags: usize) -> Self::OpenFuture<'a>;
+//!     fn read<'a>(&'a self, fd: usize, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
+//!     fn write<'a>(&'a self, fd: usize, buf: &'a [u8]) -> Self::WriteFuture<'a>;
+//!     fn close<'a>(&'a self, fd: usize) -> Self::CloseFuture<'a>;
+//!
+//!     // Generic associated types, the return values are moved to here.
+//!     type OpenFuture<'a>: ::core::future::Future<Output = Result<FileDescriptor, Errno>> + 'a;
+//!     type ReadFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+//!     type WriteFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+//!     type CloseFuture<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a;
+//! }
+//! ```
+//!
+//! Meanwhile, the impls will get the following generated code (simplified here as well):
+//!
+//! ```rust
+//!
+//! // Wrap everything in a private module to prevent the existential types from leaking.
+//! mod __private {
+//!     impl RedoxScheme for MyNothingScheme {
+//!         // Async fns are downgraded here as well, and the same thing goes with the return
+//!         // values.
+//!         fn open<'a>(&'a self, path: &'a [u8], flags: usize) -> Self::OpenFuture<'a> {
+//!             // All expressions in async fns are wrapped in async closures. The compiler will
+//!             // automagically figure out the actual types of the existential type aliases, even
+//!             // though they are anonymous.
+//!             async move { Err(ENOENT) }
+//!         }
+//!         fn read<'a>(&'a self, fd: usize, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+//!             async move { Err(EBADF) }
+//!         }
+//!         fn write<'a>(&'a self, fd: usize, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+//!             async move { Err(EBADF) }
+//!         }
+//!         fn close<'a>(&'a self, fd: usize) -> Self::CloseFuture<'a> {
+//!             async move { Err(EBADF) }
+//!         }
+//!
+//!         // This is the part where the existential types come in. Currently, there is no
+//!         // possible way to use types within type aliases within traits, that aren't publicly
+//!         // accessible. This we need async closures to avoid having to redefine our futures with
+//!         // custom state machines, or use type erased pointers, we'll use existential types.
+//!         type OpenFuture<'a> = OpenFutureExistentialType<'a>;
+//!         type ReadFuture<'a> = ReadFutureExistentialType<'a>;
+//!         type WriteFuture<'a> = WriteFutureExistentialType<'a>;
+//!         type CloseFuture<'a> = CloseFutureExistentialType<'a>;
+//!     }
+//!     // This is where the return values actually are defined. At the moment these type alises
+//!     // with impl trait can only occur outside of the trait itself, unfortunately. There can
+//!     // only be one type that this type alias refers to, which the compiler will keep track of.
+//!     type OpenFutureExistentialType<'a> = impl Future<Output = Result<FileDescriptor, Errno>> +
+//!     'a;
+//!     type ReadFutureExistentialType<'a> = impl Future<Output = Result<usize, Errno>> + 'a;
+//!     type WriteFutureExistentialType<'a> = impl Future<Output = Result<usize, Errno>> + 'a;
+//!     type CloseFutureExistentialType<'a> = impl Future<Output = Result<(), Errno>> + 'a;
+//! }
+//! ```
+//!
+
 extern crate proc_macro;
 
 use std::str::FromStr;
@@ -393,6 +546,8 @@ fn real_async_trait2(_args_stream: TokenStream, token_stream: TokenStream) -> To
     .into()
 }
 
+/// A proc macro that supports using async fn in traits and trait impls. Refer to the top-level
+/// crate documentation for more information.
 #[proc_macro_attribute]
 pub fn real_async_trait(
     args_stream: proc_macro::TokenStream,
