@@ -10,6 +10,11 @@ license = "MIT OR Apache-2.0"
 keywords = ["async-trait", "generic-associated-types", "existential-types", "proc-macro", "async"]
 categories = ["asynchronous"]
 
+[badges]
+travis-ci = { repository = "4lDO2/real-async-trait-rs", branch = "master" }
+is-it-maintained-issue-resolution = { repository = "4lDO2/real-async-trait-rs" }
+is-it-maintained-open-issues = { repository = "4lDO2/real-async-trait-rs" }
+
 [lib]
 proc-macro = true
 
