@@ -61,17 +61,35 @@ async fn main() -> Result<(), Errno> {
     let fd = numberscheme.open(b"1337", 1).await?;
     println!("Opened number container `1337`");
 
-    println!("Initiating read from number container `1337` (fd {}), into buffer at {:p}", fd, &number_buf as *const _);
+    println!(
+        "Initiating read from number container `1337` (fd {}), into buffer at {:p}",
+        fd, &number_buf as *const _
+    );
     numberscheme.read(fd, &mut number_buf).await?;
-    println!("Completed read from number container `1337` (fd {}), new value: {}", fd, number_buf);
+    println!(
+        "Completed read from number container `1337` (fd {}), new value: {}",
+        fd, number_buf
+    );
 
-    println!("Initiating write into number container `1337` (fd {}), from buffer at {:p}", fd, &input_buf as *const _);
+    println!(
+        "Initiating write into number container `1337` (fd {}), from buffer at {:p}",
+        fd, &input_buf as *const _
+    );
     numberscheme.write(fd, &input_buf).await?;
-    println!("Completed write into number container `1337` (fd {}), new value: {}", fd, input_buf);
+    println!(
+        "Completed write into number container `1337` (fd {}), new value: {}",
+        fd, input_buf
+    );
 
-    println!("Initiating second read from number container `1337` (fd {}), into buffer at {:p}", fd, &number_buf as *const _);
+    println!(
+        "Initiating second read from number container `1337` (fd {}), into buffer at {:p}",
+        fd, &number_buf as *const _
+    );
     numberscheme.read(fd, &mut number_buf).await?;
-    println!("Completed second read from number container `1337` (fd {}), new value: {}", fd, number_buf);
+    println!(
+        "Completed second read from number container `1337` (fd {}), new value: {}",
+        fd, number_buf
+    );
 
     println!("Closing number container `1337` (fd {})", fd);
     numberscheme.close(fd).await?;

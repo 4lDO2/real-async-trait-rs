@@ -20,3 +20,4 @@ syn = { version = "1", features = ["full", "visit"] }
 
 [dev-dependencies]
 async-std = { version = "1.6", features = ["attributes"] }
+syn = { version = "1", features = ["full", "visit", "extra-traits"] }

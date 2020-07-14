@@ -15,6 +15,8 @@ use syn::{
     TypePath, TypeReference, TypeTuple, Visibility,
 };
 
+mod tests;
+
 struct LifetimeVisitor;
 
 impl<'ast> syn::visit::Visit<'ast> for LifetimeVisitor {
@@ -335,7 +337,12 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
             attrs: Vec::new(),
             type_token: Token!(type)(Span::call_site()),
             bounds: iter::once(TypeParamBound::Trait(future_trait_bound(method_return_ty)))
-                .chain(toplevel_lifetimes.into_iter().map(|lifetime_def| lifetime_def.lifetime).map(TypeParamBound::Lifetime))
+                .chain(
+                    toplevel_lifetimes
+                        .into_iter()
+                        .map(|lifetime_def| lifetime_def.lifetime)
+                        .map(TypeParamBound::Lifetime),
+                )
                 .collect(),
             colon_token: Some(Token!(:)(Span::call_site())),
             default: None,
@@ -372,21 +379,24 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
         #item
     }
 }
-
-#[proc_macro_attribute]
-pub fn real_async_trait(
-    _args_stream: proc_macro::TokenStream,
-    token_stream: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
+fn real_async_trait2(_args_stream: TokenStream, token_stream: TokenStream) -> TokenStream {
     // The #[real_async_trait] attribute macro, is applicable to both trait blocks, and to impl
     // blocks that operate on that trait.
 
-    if let Ok(item_trait) = syn::parse::<ItemTrait>(token_stream.clone()) {
+    if let Ok(item_trait) = syn::parse2::<ItemTrait>(token_stream.clone()) {
         handle_item_trait(item_trait)
-    } else if let Ok(item_impl) = syn::parse::<ItemImpl>(token_stream) {
+    } else if let Ok(item_impl) = syn::parse2::<ItemImpl>(token_stream) {
         handle_item_impl(item_impl)
     } else {
         panic!("expected either a trait or an impl item")
     }
     .into()
+}
+
+#[proc_macro_attribute]
+pub fn real_async_trait(
+    args_stream: proc_macro::TokenStream,
+    token_stream: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    real_async_trait2(args_stream.into(), token_stream.into()).into()
 }
