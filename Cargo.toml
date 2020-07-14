@@ -1,11 +1,14 @@
 [package]
 name = "real-async-trait"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["4lDO2 <4lDO2@protonmail.com>"]
 edition = "2018"
+description = "A proc macro that uses experimental features to work around type erasure for async traits"
+readme = "README.md"
+repository = "https://github.com/4lDO2/real-async-trait-rs"
 license = "MIT OR Apache-2.0"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+keywords = ["async-trait", "generic-associated-types", "existential-types", "proc-macro", "async"]
+categories = ["asynchronous"]
 
 [lib]
 proc-macro = true
