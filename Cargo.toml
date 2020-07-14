@@ -7,7 +7,7 @@ description = "A proc macro that uses experimental features to work around type 
 readme = "README.md"
 repository = "https://github.com/4lDO2/real-async-trait-rs"
 license = "MIT OR Apache-2.0"
-keywords = ["async-trait", "generic-associated-types", "existential-types", "proc-macro", "async"]
+keywords = ["async-trait", "gats", "existential-types", "proc-macro", "async"]
 categories = ["asynchronous"]
 
 [badges]
