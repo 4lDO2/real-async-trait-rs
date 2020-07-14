@@ -20,8 +20,8 @@
 //! While this proc macro will allow you to write non-type-erased allocation-free async fns within
 //! traits, there are a few caveats to this (non-exhaustive):
 //!
-//! * at the moment, all references used in the async fn, must be explicitly specified, either from
-//! the top-level of the trait, or in the function declaration;
+//! * at the moment, all references used in the async fn, must have their lifetimes be explicitly
+//! specified, either from the top-level of the trait, or in the function declaration;
 //! * there can only be a single lifetime in use simultaneously. I have no idea why, but it could
 //! be due to buggy interaction between existential types and generic associated types;
 //! * since GATs are an "incomplete" feature in rust, it may not be sound or just not compile
