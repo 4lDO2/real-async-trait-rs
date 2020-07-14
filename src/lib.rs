@@ -12,7 +12,7 @@ use syn::{
     GenericParam, Generics, Ident, ImplItem, ImplItemType, ItemImpl, ItemTrait, ItemType, Lifetime,
     LifetimeDef, PatType, Path, PathArguments, PathSegment, ReturnType, Signature, Stmt, Token,
     TraitBound, TraitBoundModifier, TraitItem, TraitItemType, Type, TypeImplTrait, TypeParamBound,
-    TypePath, TypeReference, TypeTuple, VisRestricted, Visibility,
+    TypePath, TypeReference, TypeTuple, Visibility,
 };
 
 struct LifetimeVisitor;
