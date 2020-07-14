@@ -69,21 +69,7 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
             },
             ident: existential_type_ident,
             semi_token: Token!(;)(Span::call_site()),
-            vis: Visibility::Restricted(VisRestricted {
-                in_token: None,
-                paren_token: token::Paren {
-                    span: Span::call_site(),
-                },
-                pub_token: Token!(pub)(Span::call_site()),
-                path: Box::new(Path {
-                    leading_colon: None,
-                    segments: iter::once(PathSegment {
-                        arguments: PathArguments::None,
-                        ident: Ident::new("super", Span::call_site()),
-                    })
-                    .collect(),
-                }),
-            }),
+            vis: Visibility::Inherited,
             ty: Box::new(Type::ImplTrait(TypeImplTrait {
                 bounds: iter::once(TypeParamBound::Trait(future_trait_bound(return_type(
                     method.sig.output.clone(),
@@ -101,16 +87,12 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
         });
 
         let existential_type_path_for_impl = Path {
-            // self::__real_async_trait_impl::__real_async_trait_impl_ExistentialTypeFor_FUNCTIONNAME
+            // self::__real_async_trait_impl_ExistentialTypeFor_FUNCTIONNAME
             leading_colon: None,
             segments: vec![
                 PathSegment {
                     arguments: PathArguments::None,
                     ident: Ident::new("self", Span::call_site()),
-                },
-                PathSegment {
-                    arguments: PathArguments::None,
-                    ident: Ident::new("__real_async_trait_impl", Span::call_site()),
                 },
                 PathSegment {
                     arguments: PathArguments::AngleBracketed(lifetime_angle_bracketed_bounds(
@@ -182,10 +164,11 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
     item.items.extend(gat_defs.into_iter().map(Into::into));
 
     quote! {
-        #item
 
         mod __real_async_trait_impl {
             use super::*;
+
+            #item
 
             #(#existential_type_defs)*
         }
@@ -345,13 +328,14 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
 
         method.sig.asyncness = None;
 
-        let (_toplevel_lifetimes, function_lifetimes) =
+        let (toplevel_lifetimes, function_lifetimes) =
             already_defined_lifetimes(&item.generics, &method.sig.generics);
 
         new_gat_items.push(TraitItemType {
             attrs: Vec::new(),
             type_token: Token!(type)(Span::call_site()),
             bounds: iter::once(TypeParamBound::Trait(future_trait_bound(method_return_ty)))
+                .chain(toplevel_lifetimes.into_iter().map(|lifetime_def| lifetime_def.lifetime).map(TypeParamBound::Lifetime))
                 .collect(),
             colon_token: Some(Token!(:)(Span::call_site())),
             default: None,
