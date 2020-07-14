@@ -1,5 +1,7 @@
 # `#[real_async_trait]`
 [![Build Status](https://travis-ci.org/4lDO2/real-async-trait-rs.svg?branch=master)](https://travis-ci.org/4lDO2/real-async-trait-rs)
+[![Crates.io](https://img.shields.io/crates/v/real-async-trait.svg)](https://crates.io/crates/real-async-trait)
+[![Documentation](https://docs.rs/real-async-trait/badge.svg)](https://docs.rs/real-async-trait/)
 
 This crate provides a proof-of-concept proc macro attribute that allows async
 traits to be possible, without wrapping everything in a `Box` and erase the
