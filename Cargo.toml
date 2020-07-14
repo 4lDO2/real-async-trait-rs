@@ -1,6 +1,6 @@
 [package]
 name = "real-async-trait"
-version = "0.0.0"
+version = "0.0.1"
 authors = ["4lDO2 <4lDO2@protonmail.com>"]
 edition = "2018"
 description = "A proc macro that uses experimental features to work around type erasure for async traits"
