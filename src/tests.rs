@@ -2,6 +2,7 @@
 fn correct_trait_output() {
     let input = quote::quote! {
         pub trait RedoxScheme {
+            #[real_async_trait(Send)]
             async fn open<'a>(&'a mut self, path: &'a [u8], flags: usize) -> Result<usize, Errno>;
             async fn read<'a>(&'a mut self, fd: usize, buf: &'a mut [u8]) -> Result<usize, Errno>;
             async fn write<'a>(&'a mut self, fd: usize, buf: &'a [u8]) -> Result<usize, Errno>;
@@ -15,14 +16,15 @@ fn correct_trait_output() {
             fn write<'a>(&'a mut self, fd: usize, buf: &'a [u8]) -> Self::__real_async_trait_impl_TypeFor_write<'a>;
             fn close<'a>(&'a mut self, fd: usize) -> Self::__real_async_trait_impl_TypeFor_close<'a>;
 
-            type __real_async_trait_impl_TypeFor_open<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+            type __real_async_trait_impl_TypeFor_open<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a + ::core::marker::Send;
             type __real_async_trait_impl_TypeFor_read<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_TypeFor_write<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_TypeFor_close<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a;
         }
     };
-    let actual_output = crate::real_async_trait2(proc_macro2::TokenStream::new(), input);
 
+
+    let actual_output = crate::real_async_trait2(proc_macro2::TokenStream::new(), input);
     // TODO: Any better way to do this?
     let expected_output_trait = syn::parse2::<syn::Item>(expected_output).unwrap();
     let actual_output_trait = syn::parse2::<syn::Item>(actual_output).unwrap();
@@ -51,6 +53,7 @@ fn correct_impl_output() {
         mod __real_async_trait_impl {
             use super::*;
             impl RedoxScheme for MyType {
+                #[real_async_trait(Send)]
                 fn open<'a>(&'a mut self, path: &'a [u8], flags: usize) -> Self::__real_async_trait_impl_TypeFor_open<'a> {
                     async move { Ok(0) }
                 }
@@ -69,14 +72,14 @@ fn correct_impl_output() {
                 type __real_async_trait_impl_TypeFor_write<'a> = self::__real_async_trait_impl_ExistentialTypeFor_write<'a>;
                 type __real_async_trait_impl_TypeFor_close<'a> = self::__real_async_trait_impl_ExistentialTypeFor_close<'a>;
             }
-            type __real_async_trait_impl_ExistentialTypeFor_open<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+            type __real_async_trait_impl_ExistentialTypeFor_open<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a + ::core::marker::Send;
             type __real_async_trait_impl_ExistentialTypeFor_read<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_ExistentialTypeFor_write<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_ExistentialTypeFor_close<'a> = impl ::core::future::Future<Output = Result<(), Errno>> + 'a;
         }
     };
     let actual_output = crate::real_async_trait2(proc_macro2::TokenStream::new(), input);
-
+    
     // TODO: Any better way to do this?
     let expected_output_trait = syn::parse2::<syn::Item>(expected_output).unwrap();
     let actual_output_trait = syn::parse2::<syn::Item>(actual_output).unwrap();

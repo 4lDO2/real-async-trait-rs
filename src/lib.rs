@@ -153,12 +153,12 @@
 
 extern crate proc_macro;
 
-use std::str::FromStr;
+use std::{collections::HashSet, str::FromStr};
 use std::{iter, mem};
 
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use syn::punctuated::Punctuated;
+use syn::{Attribute, punctuated::Punctuated};
 use syn::token;
 use syn::{
     AngleBracketedGenericArguments, Binding, Block, Expr, ExprAsync, FnArg, GenericArgument,
@@ -183,6 +183,7 @@ impl<'ast> syn::visit::Visit<'ast> for LifetimeVisitor {
 fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
     let mut existential_type_defs = Vec::new();
     let mut gat_defs = Vec::new();
+
 
     for method in item
         .items
@@ -209,6 +210,8 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
         );
         let existential_type_ident = Ident::new(&existential_type_name, Span::call_site());
 
+        let real_async_trait_attributes = parse_attributes(&mut method.attrs);
+
         existential_type_defs.push(ItemType {
             attrs: Vec::new(),
             eq_token: Token!(=)(Span::call_site()),
@@ -234,6 +237,9 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
                         .iter()
                         .cloned()
                         .map(|lifetime_def| TypeParamBound::Lifetime(lifetime_def.lifetime)),
+                ).chain(
+                    real_async_trait_attributes.into_iter()
+                    .map(|attr| TypeParamBound::from(attr))
                 )
                 .collect(),
                 impl_token: Token!(impl)(Span::call_site()),
@@ -342,7 +348,7 @@ fn return_type(retval: ReturnType) -> Type {
     }
 }
 
-fn future_trait_bound(fn_output_ty: Type) -> TraitBound {
+fn future_trait_bound(fn_output_ty: Type) ->TraitBound {
     const FUTURE_TRAIT_PATH_STR: &str = "::core::future::Future";
     const FUTURE_TRAIT_OUTPUT_IDENT_STR: &str = "Output";
 
@@ -368,6 +374,12 @@ fn future_trait_bound(fn_output_ty: Type) -> TraitBound {
         .expect("Expected ::core::future::Future to have `Future` as the last segment")
         .arguments = PathArguments::AngleBracketed(future_angle_bracketed_args);
 
+    use quote::ToTokens;
+    
+    let mut  test_tok_stream: TokenStream =TokenStream::new();
+    future_trait_path.to_tokens(&mut test_tok_stream);
+    println!("[{}:{}] {}",file!(), line!(), test_tok_stream.to_string());
+
     TraitBound {
         // for TraitBounds, these are HRTBs, which are useless since there are already GATs present
         lifetimes: None,
@@ -377,6 +389,29 @@ fn future_trait_bound(fn_output_ty: Type) -> TraitBound {
         path: future_trait_path,
     }
 }
+
+impl From<RealAsyncTraitAttributes> for TypeParamBound{
+    fn from(attr: RealAsyncTraitAttributes)->TypeParamBound{
+        const SEND_TRAIT_PATH_STR: &str = "::core::marker::Send";
+        match attr{
+            RealAsyncTraitAttributes::Send=>{
+                let path = syn::parse2::<Path>(TokenStream::from_str(SEND_TRAIT_PATH_STR).unwrap())
+                    .expect(&format!("{}{}{}", "Failed to parse ", SEND_TRAIT_PATH_STR, "into path"));
+                TypeParamBound::Trait(
+                    TraitBound{
+                    lifetimes: None,
+                    modifier: TraitBoundModifier::None,
+                    paren_token: None,
+                    path: path,
+                }
+            )
+            }
+            #[allow(unreachable_patterns)]
+            other_variants => panic!("Attempted to convert RealAsyncTraitAttributes into a path, no conversion for the variant found. Variant was: {:?}", other_variants),
+        }
+    }
+}
+
 
 fn validate_that_function_always_has_lifetimes(signature: &Signature) {
     for input in signature.inputs.iter() {
@@ -454,6 +489,7 @@ fn self_gat_type(
     }
 }
 fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
+
     let mut new_gat_items = Vec::new();
 
     // Loop through every single async fn declared in the trait.
@@ -469,12 +505,15 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
         })
         .filter(|method| method.sig.asyncness.is_some())
     {
+        
         // For each async fn, remove the async part, replace the return value with a generic
         // associated type, and add that generic associated type to the trait item.
 
         // Check that all types have a lifetime that is either specific to the trait item, or
         // to the current function (or 'static). Any other lifetime will and must produce a
         // compiler error.
+        let real_async_traits_attributes: HashSet<RealAsyncTraitAttributes> =  parse_attributes(&mut method.attrs);
+
         let gat_ident = gat_ident_for_sig(&method.sig);
 
         let method_return_ty = return_type(method.sig.output.clone());
@@ -486,6 +525,8 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
         let (toplevel_lifetimes, function_lifetimes) =
             already_defined_lifetimes(&item.generics, &method.sig.generics);
 
+
+//println!("[{}:{}] {:?}", file!(), line!(),test_bounds);
         new_gat_items.push(TraitItemType {
             attrs: Vec::new(),
             type_token: Token!(type)(Span::call_site()),
@@ -495,6 +536,10 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
                         .into_iter()
                         .map(|lifetime_def| lifetime_def.lifetime)
                         .map(TypeParamBound::Lifetime),
+                ).chain(
+                    real_async_traits_attributes
+                    .into_iter()
+                    .map(|attr| TypeParamBound::from(attr))
                 )
                 .collect(),
             colon_token: Some(Token!(:)(Span::call_site())),
@@ -532,9 +577,29 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
         #item
     }
 }
+
+#[non_exhaustive]
+#[derive(Hash, PartialEq, Eq, Debug, Clone)]
+enum RealAsyncTraitAttributes{
+    Send,
+}
+
+
+impl std::str::FromStr for RealAsyncTraitAttributes{
+    type Err =String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let trimmed_str = s.trim();
+        match trimmed_str{
+            "Send"|"send" => Ok(RealAsyncTraitAttributes::Send),
+            _ => Err(format!("Could not parse {} into an attribute", s)),
+        }
+    }
+}
+
 fn real_async_trait2(_args_stream: TokenStream, token_stream: TokenStream) -> TokenStream {
     // The #[real_async_trait] attribute macro, is applicable to both trait blocks, and to impl
     // blocks that operate on that trait.
+
 
     if let Ok(item_trait) = syn::parse2::<ItemTrait>(token_stream.clone()) {
         handle_item_trait(item_trait)
@@ -554,4 +619,66 @@ pub fn real_async_trait(
     token_stream: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     real_async_trait2(args_stream.into(), token_stream.into()).into()
+}
+
+/*
+attrs: [
+    Attribute {
+         pound_token: Pound, 
+         style: Outer, 
+         bracket_token: Bracket, 
+         path: Path {
+              leading_colon: None,
+               segments: [
+                   PathSegment {
+                        ident: Ident(real_async_trait), 
+                        arguments: None 
+                    }
+                ]
+        }, 
+        tokens: TokenStream [
+            Group {
+                 delimiter: Parenthesis, 
+                 stream: TokenStream [
+                    Ident {
+                          sym: Send 
+                    }
+                ] 
+            }
+        ] 
+    }
+]*/
+
+
+
+fn parse_attributes(attrs: &mut Vec<Attribute>) -> HashSet<RealAsyncTraitAttributes>{
+        let is_real_async_attribute = |attr: &Attribute|{
+            let p = &attr.path;
+            let t = &attr.tokens;
+            return  p.leading_colon == None && 
+                    p.segments.len() == 1 && 
+                    p.segments.first().unwrap().arguments == syn::PathArguments::None &&
+                    p.segments.first().unwrap().ident.eq("real_async_trait") &&
+                    !t.is_empty();
+
+        };
+        let attribute_groups_token_stream: Vec<proc_macro2::TokenStream>= attrs.iter().filter(|attr| is_real_async_attribute(*attr)).map(|attr| attr.tokens.to_owned()).collect();
+        attrs.retain(|attr| !is_real_async_attribute(attr));
+        let mut ret_val: HashSet<RealAsyncTraitAttributes> = HashSet::new();
+        if attribute_groups_token_stream.len() == 0{
+            return ret_val;
+        }
+        println!("[{}:{}]{:?}",file!(), line!(), attribute_groups_token_stream);
+        for group in attribute_groups_token_stream.into_iter(){
+            for tok in group.into_iter(){
+                let string_repr = match tok{
+                    proc_macro2::TokenTree::Group(g) => g.stream().to_string(),
+                    proc_macro2::TokenTree::Ident(i) => i.to_string(),
+                    proc_macro2::TokenTree::Punct(p) => panic!("Did not expect punctuation in the attribute, found: {}", p.as_char()),
+                    proc_macro2::TokenTree::Literal(l) => l.to_string(),
+                };
+                ret_val.insert(RealAsyncTraitAttributes::from_str(&string_repr).expect(&format!("Could not parse the attribute token: {}", string_repr)));
+            }
+        }
+        return ret_val;
 }
