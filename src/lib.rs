@@ -210,7 +210,6 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
         );
         let existential_type_ident = Ident::new(&existential_type_name, Span::call_site());
 
-        let real_async_trait_attributes = parse_attributes(&mut method.attrs);
 
         existential_type_defs.push(ItemType {
             attrs: Vec::new(),
@@ -237,9 +236,6 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
                         .iter()
                         .cloned()
                         .map(|lifetime_def| TypeParamBound::Lifetime(lifetime_def.lifetime)),
-                ).chain(
-                    real_async_trait_attributes.into_iter()
-                    .map(|attr| TypeParamBound::from(attr))
                 )
                 .collect(),
                 impl_token: Token!(impl)(Span::call_site()),
