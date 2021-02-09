@@ -2,6 +2,7 @@
 fn correct_trait_output() {
     let input = quote::quote! {
         pub trait RedoxScheme {
+            #[send]
             async fn open<'a>(&'a mut self, path: &'a [u8], flags: usize) -> Result<usize, Errno>;
             async fn read<'a>(&'a mut self, fd: usize, buf: &'a mut [u8]) -> Result<usize, Errno>;
             async fn write<'a>(&'a mut self, fd: usize, buf: &'a [u8]) -> Result<usize, Errno>;
@@ -15,7 +16,7 @@ fn correct_trait_output() {
             fn write<'a>(&'a mut self, fd: usize, buf: &'a [u8]) -> Self::__real_async_trait_impl_TypeFor_write<'a>;
             fn close<'a>(&'a mut self, fd: usize) -> Self::__real_async_trait_impl_TypeFor_close<'a>;
 
-            type __real_async_trait_impl_TypeFor_open<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+            type __real_async_trait_impl_TypeFor_open<'a>: ::core::future::Future<Output = Result<usize, Errno>> + ::core::marker::Send + 'a;
             type __real_async_trait_impl_TypeFor_read<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_TypeFor_write<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_TypeFor_close<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a;
@@ -33,6 +34,7 @@ fn correct_trait_output() {
 fn correct_impl_output() {
     let input = quote::quote! {
         impl RedoxScheme for MyType {
+            #[send]
             async fn open<'a>(&'a mut self, path: &'a [u8], flags: usize) -> Result<usize, Errno> {
                 Ok(0)
             }
@@ -69,7 +71,7 @@ fn correct_impl_output() {
                 type __real_async_trait_impl_TypeFor_write<'a> = self::__real_async_trait_impl_ExistentialTypeFor_write<'a>;
                 type __real_async_trait_impl_TypeFor_close<'a> = self::__real_async_trait_impl_ExistentialTypeFor_close<'a>;
             }
-            type __real_async_trait_impl_ExistentialTypeFor_open<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+            type __real_async_trait_impl_ExistentialTypeFor_open<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + ::core::marker::Send + 'a;
             type __real_async_trait_impl_ExistentialTypeFor_read<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_ExistentialTypeFor_write<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_ExistentialTypeFor_close<'a> = impl ::core::future::Future<Output = Result<(), Errno>> + 'a;

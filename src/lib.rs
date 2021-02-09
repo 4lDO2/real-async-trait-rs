@@ -161,11 +161,11 @@ use quote::quote;
 use syn::punctuated::Punctuated;
 use syn::token;
 use syn::{
-    AngleBracketedGenericArguments, Binding, Block, Expr, ExprAsync, FnArg, GenericArgument,
-    GenericParam, Generics, Ident, ImplItem, ImplItemType, ItemImpl, ItemTrait, ItemType, Lifetime,
-    LifetimeDef, PatType, Path, PathArguments, PathSegment, ReturnType, Signature, Stmt, Token,
-    TraitBound, TraitBoundModifier, TraitItem, TraitItemType, Type, TypeImplTrait, TypeParamBound,
-    TypePath, TypeReference, TypeTuple, Visibility,
+    AngleBracketedGenericArguments, AttrStyle, Attribute, Binding, Block, Expr, ExprAsync, FnArg,
+    GenericArgument, GenericParam, Generics, Ident, ImplItem, ImplItemType, ItemImpl, ItemTrait,
+    ItemType, Lifetime, LifetimeDef, PatType, Path, PathArguments, PathSegment, ReturnType,
+    Signature, Stmt, Token, TraitBound, TraitBoundModifier, TraitItem, TraitItemType, Type,
+    TypeImplTrait, TypeParamBound, TypePath, TypeReference, TypeTuple, Visibility,
 };
 
 mod tests;
@@ -209,6 +209,8 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
         );
         let existential_type_ident = Ident::new(&existential_type_name, Span::call_site());
 
+        let requires_send = method_requires_send(&mut method.attrs);
+
         existential_type_defs.push(ItemType {
             attrs: Vec::new(),
             eq_token: Token!(=)(Span::call_site()),
@@ -229,6 +231,11 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
                 bounds: iter::once(TypeParamBound::Trait(future_trait_bound(return_type(
                     method.sig.output.clone(),
                 ))))
+                .chain(if requires_send {
+                    Some(TypeParamBound::Trait(send_trait_bound()))
+                } else {
+                    None
+                })
                 .chain(
                     toplevel_lifetimes
                         .iter()
@@ -377,6 +384,19 @@ fn future_trait_bound(fn_output_ty: Type) -> TraitBound {
         path: future_trait_path,
     }
 }
+fn send_trait_bound() -> TraitBound {
+    const SEND_TRAIT_PATH_STR: &str = "::core::marker::Send";
+
+    let send_trait_path = syn::parse2::<Path>(TokenStream::from_str(SEND_TRAIT_PATH_STR).unwrap())
+        .expect("failed to parse `::core::marker::Send` as a syn `Path`");
+
+    TraitBound {
+        lifetimes: None,
+        modifier: TraitBoundModifier::None,
+        paren_token: None,
+        path: send_trait_path,
+    }
+}
 
 fn validate_that_function_always_has_lifetimes(signature: &Signature) {
     for input in signature.inputs.iter() {
@@ -419,7 +439,7 @@ fn lifetime_angle_bracketed_bounds(
         gt_token: Token!(>)(Span::call_site()),
         args: lifetimes
             .into_iter()
-            .map(|lifetime_def| GenericArgument::Lifetime(lifetime_def))
+            .map(GenericArgument::Lifetime)
             .collect(),
     }
 }
@@ -453,6 +473,41 @@ fn self_gat_type(
         qself: None,
     }
 }
+fn method_requires_send(attrs: &mut Vec<Attribute>) -> bool {
+    if let Some(first_attr_idx) = attrs.iter().position(|attr| {
+        // This represents #[send], which will be the most common way to express the Send
+        // future bound.
+        let is_direct_send = attr.path.is_ident("send");
+
+        // However, in some edge-cases, it may not be impossible that this proc macro is
+        // combined with another one, that has a special use-case for `#[send]`. Thus, we will
+        // also allow the user to type `#[::real_async_trait::send]` instead.
+        let is_indirect_send = {
+            let has_leading_colon = attr.path.leading_colon.is_some();
+            let corresponding_segments = [
+                PathSegment {
+                    ident: Ident::new("real_async_trait", Span::call_site()),
+                    arguments: PathArguments::None,
+                },
+                PathSegment {
+                    ident: Ident::new("send", Span::call_site()),
+                    arguments: PathArguments::None,
+                },
+            ];
+
+            has_leading_colon
+                && Iterator::eq(attr.path.segments.iter(), corresponding_segments.iter())
+        };
+
+        is_direct_send || is_indirect_send
+    }) {
+        let attr = attrs.remove(first_attr_idx);
+        assert_eq!(attr.style, AttrStyle::Outer);
+        true
+    } else {
+        false
+    }
+}
 fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
     let mut new_gat_items = Vec::new();
 
@@ -477,6 +532,7 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
         // compiler error.
         let gat_ident = gat_ident_for_sig(&method.sig);
 
+        let requires_send = method_requires_send(&mut method.attrs);
         let method_return_ty = return_type(method.sig.output.clone());
 
         validate_that_function_always_has_lifetimes(&method.sig);
@@ -490,6 +546,11 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
             attrs: Vec::new(),
             type_token: Token!(type)(Span::call_site()),
             bounds: iter::once(TypeParamBound::Trait(future_trait_bound(method_return_ty)))
+                .chain(if requires_send {
+                    Some(TypeParamBound::Trait(send_trait_bound()))
+                } else {
+                    None
+                })
                 .chain(
                     toplevel_lifetimes
                         .into_iter()
@@ -543,7 +604,6 @@ fn real_async_trait2(_args_stream: TokenStream, token_stream: TokenStream) -> To
     } else {
         panic!("expected either a trait or an impl item")
     }
-    .into()
 }
 
 /// A proc macro that supports using async fn in traits and trait impls. Refer to the top-level

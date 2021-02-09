@@ -12,6 +12,7 @@ pub const EBADF: usize = 2;
 
 #[real_async_trait]
 pub trait AsyncScheme {
+    #[send]
     async fn open<'a>(&'a mut self, path: &'a [u8], flags: usize) -> Result<usize, Errno>;
     async fn close<'a>(&'a mut self, fd: usize) -> Result<(), Errno>;
     async fn read<'a>(&'a mut self, fd: usize, num: &'a mut u64) -> Result<(), Errno>;
@@ -24,6 +25,7 @@ struct NumberScheme {
 
 #[real_async_trait]
 impl AsyncScheme for NumberScheme {
+    #[send]
     async fn open<'a>(&'a mut self, path: &'a [u8], _flags: usize) -> Result<usize, Errno> {
         let path_str = str::from_utf8(path).or(Err(ENOENT))?;
         let num = path_str.parse::<usize>().or(Err(ENOENT))?;
