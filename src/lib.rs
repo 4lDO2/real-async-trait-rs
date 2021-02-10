@@ -164,10 +164,11 @@
 //!             async move { Err(EBADF) }
 //!         }
 //!
-//!         // This is the part where the existential types come in. Currently, there is no
-//!         // possible way to use types within type aliases within traits, that aren't publicly
-//!         // accessible. This we need async closures to avoid having to redefine our futures with
-//!         // custom state machines, or use type erased pointers, we'll use existential types.
+//!         // This is the part where the existential types come in. Currently, there is no possible
+//!         // way to use types within type aliases inside of trait implementations, that aren't
+//!         // publicly accessible. As we need some way to assign a user-visible type to the async
+//!         // blocks, and we don't want the user to have to box futures, existential types are the
+//!         // solution.  use existential types.
 //!         type OpenFuture<'a> = OpenFutureExistentialType<'a>;
 //!         type ReadFuture<'a> = ReadFutureExistentialType<'a>;
 //!         type WriteFuture<'a> = WriteFutureExistentialType<'a>;
