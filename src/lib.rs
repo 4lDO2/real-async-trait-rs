@@ -22,15 +22,21 @@
 //!
 //! * at the moment, all references used in the async fn, must have their lifetimes be explicitly
 //! specified, either from the top-level of the trait, or in the function declaration;
-//! * there can only be a single lifetime in use simultaneously. I have no idea why, but it could
-//! be due to buggy interaction between existential types and generic associated types;
+//! * there can only be a single lifetime in use simultaneously. It appears to be caused by
+//! [#61756](https://github.com/rust-lang/rust/issues/61756), but could perhaps be worked around
+//! using a `Capture` trait;
+//! * While this proc macro allows traits to also require a `Send` trait bound on futures, it is
+//! not particularly trivial if at all possible, to require that the future implement `Send`, if
+//! and only if `Self: Send`. It _may_ be possible using some HRTB hack, but would require a
+//! language feature in the long term.
 //! * since GATs are an "incomplete" feature in rust, it may not be sound or just not compile
 //! correctly or at all. __Don't use this in production code!__
 //!
 //! ## Example
-//! ```ignore
-//! #[async_std::main]
-//! # async fn main() {
+//! ```
+//! #![feature(generic_associated_types, type_alias_impl_trait)]
+//! use real_async_trait::real_async_trait;
+//!
 //! /// An error code, similar to `errno` in C.
 //! pub type Errno = usize;
 //!
@@ -46,6 +52,8 @@
 //! /// A filesystem-like primitive, used in the Redox Operating System.
 //! #[real_async_trait]
 //! pub trait RedoxScheme {
+//!     /// Some async fns can force the implementor to also implement `Send` for the future.
+//!     #[send]
 //!     async fn open<'a>(&'a self, path: &'a [u8], flags: usize) -> Result<FileDescriptor, Errno>;
 //!     async fn read<'a>(&'a self, fd: FileDescriptor, buffer: &'a mut [u8]) -> Result<usize, Errno>;
 //!     async fn write<'a>(&'a self, fd: FileDescriptor, buffer: &'a [u8]) -> Result<usize, Errno>;
@@ -57,20 +65,24 @@
 //!
 //! #[real_async_trait]
 //! impl RedoxScheme for MyNothingScheme {
+//!     #[send]
 //!     async fn open<'a>(&'a self, path: &'a [u8], flags: usize) -> Result<FileDescriptor, Errno> {
 //!         // I can write async code in here!
 //!         Err(ENOENT)
 //!     }
-//!     async fn read<'a>(&'a self, buffer: &'a mut [u8]) -> Result<usize, Errno> {
+//!     async fn read<'a>(&'a self, fd: FileDescriptor, buffer: &'a mut [u8]) -> Result<usize, Errno> {
 //!         Err(EBADF)
 //!     }
-//!     async fn write<'a>(&'a self, path: &'a [u8]) -> Result<usize, Errno> {
+//!     async fn write<'a>(&'a self, fd: FileDescriptor, path: &'a [u8]) -> Result<usize, Errno> {
 //!         Err(EBADF)
 //!     }
-//!     async fn close<'a>(&'a self, path: &'a [u8]) -> Result<(), Errno> {
+//!     async fn close<'a>(&'a self, fd: FileDescriptor) -> Result<(), Errno> {
 //!         Err(EBADF)
 //!     }
 //! }
+//!
+//! # #[async_std::main]
+//! # async fn main() {
 //!
 //! let my_nothing_scheme = MyNothingScheme;
 //!
@@ -88,17 +100,22 @@
 //! that are the return types of the async fns in the trait definition. The macro will generate the
 //! following for the `RedoxScheme` trait (simplified generated names):
 //!
-//! ```ignore
+//! ```
+//! # #![feature(generic_associated_types)]
+//! # struct FileDescriptor;
+//! # struct Errno;
 //! pub trait RedoxScheme {
 //!     // Downgraded functions, from async fn to fn. Their types have changed into a generic
 //!     // associated type.
 //!     fn open<'a>(&'a self, path: &'a [u8], flags: usize) -> Self::OpenFuture<'a>;
-//!     fn read<'a>(&'a self, fd: usize, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
-//!     fn write<'a>(&'a self, fd: usize, buf: &'a [u8]) -> Self::WriteFuture<'a>;
-//!     fn close<'a>(&'a self, fd: usize) -> Self::CloseFuture<'a>;
+//!     fn read<'a>(&'a self, fd: FileDescriptor, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
+//!     fn write<'a>(&'a self, fd: FileDescriptor, buf: &'a [u8]) -> Self::WriteFuture<'a>;
+//!     fn close<'a>(&'a self, fd: FileDescriptor) -> Self::CloseFuture<'a>;
 //!
 //!     // Generic associated types, the return values are moved to here.
-//!     type OpenFuture<'a>: ::core::future::Future<Output = Result<FileDescriptor, Errno>> + 'a;
+//!     // NOTE: all #[send] methods also get the `Send` trait bound.
+//!     type OpenFuture<'a>: ::core::future::Future<Output = Result<FileDescriptor, Errno>> +
+//!         ::core::marker::Send + 'a;
 //!     type ReadFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
 //!     type WriteFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
 //!     type CloseFuture<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a;
@@ -107,26 +124,43 @@
 //!
 //! Meanwhile, the impls will get the following generated code (simplified here as well):
 //!
-//! ```ignore
+//! ```
+//! # #![feature(generic_associated_types, type_alias_impl_trait)]
+//! # struct FileDescriptor;
+//! # struct Errno;
+//! # pub trait RedoxScheme {
+//! #   fn open<'a>(&'a self, path: &'a [u8], flags: usize) -> Self::OpenFuture<'a>;
+//! #   fn read<'a>(&'a self, fd: FileDescriptor, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
+//! #   fn write<'a>(&'a self, fd: FileDescriptor, buf: &'a [u8]) -> Self::WriteFuture<'a>;
+//! #   fn close<'a>(&'a self, fd: FileDescriptor) -> Self::CloseFuture<'a>;
+//! #   type OpenFuture<'a>: ::core::future::Future<Output = Result<FileDescriptor, Errno>> + Send + 'a;
+//! #   type ReadFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+//! #   type WriteFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+//! #   type CloseFuture<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a;
+//! # }
+//! # const ENOENT: Errno = Errno;
+//! # const EBADF: Errno = Errno;
 //!
 //! // Wrap everything in a private module to prevent the existential types from leaking.
-//! mod __private {
+//! // XXX: Apparently rust doctests don't work that great with private modules :(
+//! // mod __private {
+//! #   struct MyNothingScheme;
 //!     impl RedoxScheme for MyNothingScheme {
 //!         // Async fns are downgraded here as well, and the same thing goes with the return
 //!         // values.
 //!         fn open<'a>(&'a self, path: &'a [u8], flags: usize) -> Self::OpenFuture<'a> {
-//!             // All expressions in async fns are wrapped in async closures. The compiler will
+//!             // All expressions in async fns are wrapped in async blocks. The compiler will
 //!             // automagically figure out the actual types of the existential type aliases, even
 //!             // though they are anonymous.
 //!             async move { Err(ENOENT) }
 //!         }
-//!         fn read<'a>(&'a self, fd: usize, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
+//!         fn read<'a>(&'a self, fd: FileDescriptor, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
 //!             async move { Err(EBADF) }
 //!         }
-//!         fn write<'a>(&'a self, fd: usize, buf: &'a [u8]) -> Self::WriteFuture<'a> {
+//!         fn write<'a>(&'a self, fd: FileDescriptor, buf: &'a [u8]) -> Self::WriteFuture<'a> {
 //!             async move { Err(EBADF) }
 //!         }
-//!         fn close<'a>(&'a self, fd: usize) -> Self::CloseFuture<'a> {
+//!         fn close<'a>(&'a self, fd: FileDescriptor) -> Self::CloseFuture<'a> {
 //!             async move { Err(EBADF) }
 //!         }
 //!
@@ -142,12 +176,12 @@
 //!     // This is where the return values actually are defined. At the moment these type alises
 //!     // with impl trait can only occur outside of the trait itself, unfortunately. There can
 //!     // only be one type that this type alias refers to, which the compiler will keep track of.
-//!     type OpenFutureExistentialType<'a> = impl Future<Output = Result<FileDescriptor, Errno>> +
-//!     'a;
-//!     type ReadFutureExistentialType<'a> = impl Future<Output = Result<usize, Errno>> + 'a;
-//!     type WriteFutureExistentialType<'a> = impl Future<Output = Result<usize, Errno>> + 'a;
-//!     type CloseFutureExistentialType<'a> = impl Future<Output = Result<(), Errno>> + 'a;
-//! }
+//!     type OpenFutureExistentialType<'a> = impl ::core::future::Future<Output = Result<FileDescriptor, Errno>> +
+//!         ::core::marker::Send + 'a;
+//!     type ReadFutureExistentialType<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+//!     type WriteFutureExistentialType<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
+//!     type CloseFutureExistentialType<'a> = impl ::core::future::Future<Output = Result<(), Errno>> + 'a;
+//! // }
 //! ```
 //!
 
