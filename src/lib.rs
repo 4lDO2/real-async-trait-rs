@@ -34,7 +34,7 @@
 //!
 //! ## Example
 //! ```
-//! #![feature(generic_associated_types, type_alias_impl_trait)]
+//! #![feature(generic_associated_types, min_type_alias_impl_trait)]
 //! use real_async_trait::real_async_trait;
 //!
 //! /// An error code, similar to `errno` in C.
@@ -125,7 +125,7 @@
 //! Meanwhile, the impls will get the following generated code (simplified here as well):
 //!
 //! ```
-//! # #![feature(generic_associated_types, type_alias_impl_trait)]
+//! # #![feature(generic_associated_types, min_type_alias_impl_trait)]
 //! # struct FileDescriptor;
 //! # struct Errno;
 //! # pub trait RedoxScheme {
