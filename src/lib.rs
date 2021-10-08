@@ -362,13 +362,11 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
 
     quote! {
 
-        mod __real_async_trait_impl {
-            use super::*;
-
+        const _: () = {
             #item
 
             #(#existential_type_defs)*
-        }
+        };
     }
 }
 
