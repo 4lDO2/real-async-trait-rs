@@ -343,7 +343,7 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
             Box::new(gat_self_type.into()),
         );
 
-        let method_stmts = mem::replace(&mut method.block.stmts, Vec::new());
+        let method_stmts = mem::take(&mut method.block.stmts);
 
         method.block.stmts = vec![Stmt::Expr(Expr::Async(ExprAsync {
             async_token: Token!(async)(Span::call_site()),
