@@ -50,8 +50,7 @@ fn correct_impl_output() {
         }
     };
     let expected_output = quote::quote! {
-        mod __real_async_trait_impl {
-            use super::*;
+        const _: () = {
             impl RedoxScheme for MyType {
                 fn open<'a>(&'a mut self, path: &'a [u8], flags: usize) -> Self::__real_async_trait_impl_TypeFor_open<'a> {
                     async move { Ok(0) }
@@ -66,16 +65,16 @@ fn correct_impl_output() {
                     async move { Ok(()) }
                 }
 
-                type __real_async_trait_impl_TypeFor_open<'a> = self::__real_async_trait_impl_ExistentialTypeFor_open<'a>;
-                type __real_async_trait_impl_TypeFor_read<'a> = self::__real_async_trait_impl_ExistentialTypeFor_read<'a>;
-                type __real_async_trait_impl_TypeFor_write<'a> = self::__real_async_trait_impl_ExistentialTypeFor_write<'a>;
-                type __real_async_trait_impl_TypeFor_close<'a> = self::__real_async_trait_impl_ExistentialTypeFor_close<'a>;
+                type __real_async_trait_impl_TypeFor_open<'a> = __real_async_trait_impl_ExistentialTypeFor_open<'a>;
+                type __real_async_trait_impl_TypeFor_read<'a> = __real_async_trait_impl_ExistentialTypeFor_read<'a>;
+                type __real_async_trait_impl_TypeFor_write<'a> = __real_async_trait_impl_ExistentialTypeFor_write<'a>;
+                type __real_async_trait_impl_TypeFor_close<'a> = __real_async_trait_impl_ExistentialTypeFor_close<'a>;
             }
             type __real_async_trait_impl_ExistentialTypeFor_open<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + ::core::marker::Send + 'a;
             type __real_async_trait_impl_ExistentialTypeFor_read<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_ExistentialTypeFor_write<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
             type __real_async_trait_impl_ExistentialTypeFor_close<'a> = impl ::core::future::Future<Output = Result<(), Errno>> + 'a;
-        }
+        };
     };
     let actual_output = crate::real_async_trait2(proc_macro2::TokenStream::new(), input);
 
@@ -83,7 +82,14 @@ fn correct_impl_output() {
     let expected_output_trait = syn::parse2::<syn::Item>(expected_output).unwrap();
     let actual_output_trait = syn::parse2::<syn::Item>(actual_output).unwrap();
 
-    assert_eq!(expected_output_trait, actual_output_trait);
+    if expected_output_trait != actual_output_trait {
+        use quote::ToTokens;
+        panic!(
+            "\n\n\nEXPECTED {}\n\n\nFOUND {}\n\n\n",
+            expected_output_trait.into_token_stream(),
+            actual_output_trait.into_token_stream()
+        );
+    }
 }
 
 // TODO: Expand tests, and add integration tests.

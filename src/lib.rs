@@ -286,20 +286,14 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
         let existential_type_path_for_impl = Path {
             // self::__real_async_trait_impl_ExistentialTypeFor_FUNCTIONNAME
             leading_colon: None,
-            segments: vec![
-                PathSegment {
-                    arguments: PathArguments::None,
-                    ident: Ident::new("self", Span::call_site()),
-                },
-                PathSegment {
-                    arguments: PathArguments::AngleBracketed(lifetime_angle_bracketed_bounds(
-                        toplevel_lifetimes
-                            .into_iter()
-                            .map(|lifetime_def| lifetime_def.lifetime),
-                    )),
-                    ident: Ident::new(&existential_type_name, Span::call_site()),
-                },
-            ]
+            segments: vec![PathSegment {
+                arguments: PathArguments::AngleBracketed(lifetime_angle_bracketed_bounds(
+                    toplevel_lifetimes
+                        .into_iter()
+                        .map(|lifetime_def| lifetime_def.lifetime),
+                )),
+                ident: Ident::new(&existential_type_name, Span::call_site()),
+            }]
             .into_iter()
             .collect(),
         };
