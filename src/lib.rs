@@ -311,7 +311,32 @@ fn handle_item_impl(mut item: ItemImpl) -> TokenStream {
             generics: Generics {
                 lt_token: Some(Token!(<)(Span::call_site())),
                 gt_token: Some(Token!(>)(Span::call_site())),
-                where_clause: None,
+                where_clause: Some(WhereClause {
+                    where_token: Where::default(),
+                    predicates: function_lifetimes
+                        .iter()
+                        .cloned()
+                        .map(|lifetimedef| {
+                            WherePredicate::Type(PredicateType {
+                                colon_token: Token!(:)(Span::call_site()),
+                                lifetimes: None,
+                                bounded_ty: Type::Path(TypePath {
+                                    qself: None,
+                                    path: Path {
+                                        leading_colon: None,
+                                        segments: Punctuated::from_iter([PathSegment {
+                                            ident: Ident::new("Self", Span::call_site()),
+                                            arguments: PathArguments::None,
+                                        }]),
+                                    },
+                                }),
+                                bounds: Punctuated::from_iter([TypeParamBound::Lifetime(
+                                    lifetimedef.lifetime,
+                                )]),
+                            })
+                        })
+                        .collect(),
+                }),
                 params: function_lifetimes
                     .iter()
                     .cloned()
@@ -590,7 +615,32 @@ fn handle_item_trait(mut item: ItemTrait) -> TokenStream {
             generics: Generics {
                 lt_token: Some(Token!(<)(Span::call_site())),
                 gt_token: Some(Token!(>)(Span::call_site())),
-                where_clause: None,
+                where_clause: Some(WhereClause {
+                    where_token: Where::default(),
+                    predicates: function_lifetimes
+                        .iter()
+                        .cloned()
+                        .map(|lifetimedef| {
+                            WherePredicate::Type(PredicateType {
+                                colon_token: Token!(:)(Span::call_site()),
+                                lifetimes: None,
+                                bounded_ty: Type::Path(TypePath {
+                                    qself: None,
+                                    path: Path {
+                                        leading_colon: None,
+                                        segments: Punctuated::from_iter([PathSegment {
+                                            ident: Ident::new("Self", Span::call_site()),
+                                            arguments: PathArguments::None,
+                                        }]),
+                                    },
+                                }),
+                                bounds: Punctuated::from_iter([TypeParamBound::Lifetime(
+                                    lifetimedef.lifetime,
+                                )]),
+                            })
+                        })
+                        .collect(),
+                }),
                 params: function_lifetimes
                     .iter()
                     .cloned()
