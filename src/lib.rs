@@ -115,10 +115,10 @@
 //!     // Generic associated types, the return values are moved to here.
 //!     // NOTE: all #[send] methods also get the `Send` trait bound.
 //!     type OpenFuture<'a>: ::core::future::Future<Output = Result<FileDescriptor, Errno>> +
-//!         ::core::marker::Send + 'a;
-//!     type ReadFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
-//!     type WriteFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
-//!     type CloseFuture<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a;
+//!         ::core::marker::Send + 'a where Self: 'a;
+//!     type ReadFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a where Self: 'a;
+//!     type WriteFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a where Self: 'a;
+//!     type CloseFuture<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a where Self: 'a;
 //! }
 //! ```
 //!
@@ -133,10 +133,10 @@
 //! #   fn read<'a>(&'a self, fd: FileDescriptor, buf: &'a mut [u8]) -> Self::ReadFuture<'a>;
 //! #   fn write<'a>(&'a self, fd: FileDescriptor, buf: &'a [u8]) -> Self::WriteFuture<'a>;
 //! #   fn close<'a>(&'a self, fd: FileDescriptor) -> Self::CloseFuture<'a>;
-//! #   type OpenFuture<'a>: ::core::future::Future<Output = Result<FileDescriptor, Errno>> + Send + 'a;
-//! #   type ReadFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
-//! #   type WriteFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
-//! #   type CloseFuture<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a;
+//! #   type OpenFuture<'a>: ::core::future::Future<Output = Result<FileDescriptor, Errno>> + Send + 'a where Self: 'a;
+//! #   type ReadFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a where Self: 'a;
+//! #   type WriteFuture<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a where Self: 'a;
+//! #   type CloseFuture<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a where Self: 'a;
 //! # }
 //! # const ENOENT: Errno = Errno;
 //! # const EBADF: Errno = Errno;
@@ -188,13 +188,15 @@
 
 extern crate proc_macro;
 
+use std::iter::FromIterator;
 use std::str::FromStr;
 use std::{iter, mem};
 
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::punctuated::Punctuated;
-use syn::token;
+use syn::token::Where;
+use syn::{token, PredicateType, WhereClause, WherePredicate};
 use syn::{
     AngleBracketedGenericArguments, AttrStyle, Attribute, Binding, Block, Expr, ExprAsync, FnArg,
     GenericArgument, GenericParam, Generics, Ident, ImplItem, ImplItemType, ItemImpl, ItemTrait,

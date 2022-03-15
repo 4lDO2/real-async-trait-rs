@@ -16,10 +16,10 @@ fn correct_trait_output() {
             fn write<'a>(&'a mut self, fd: usize, buf: &'a [u8]) -> Self::__real_async_trait_impl_TypeFor_write<'a>;
             fn close<'a>(&'a mut self, fd: usize) -> Self::__real_async_trait_impl_TypeFor_close<'a>;
 
-            type __real_async_trait_impl_TypeFor_open<'a>: ::core::future::Future<Output = Result<usize, Errno>> + ::core::marker::Send + 'a;
-            type __real_async_trait_impl_TypeFor_read<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
-            type __real_async_trait_impl_TypeFor_write<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a;
-            type __real_async_trait_impl_TypeFor_close<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a;
+            type __real_async_trait_impl_TypeFor_open<'a>: ::core::future::Future<Output = Result<usize, Errno>> + ::core::marker::Send + 'a where Self: 'a;
+            type __real_async_trait_impl_TypeFor_read<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a where Self: 'a;
+            type __real_async_trait_impl_TypeFor_write<'a>: ::core::future::Future<Output = Result<usize, Errno>> + 'a where Self: 'a;
+            type __real_async_trait_impl_TypeFor_close<'a>: ::core::future::Future<Output = Result<(), Errno>> + 'a where Self: 'a;
         }
     };
     let actual_output = crate::real_async_trait2(proc_macro2::TokenStream::new(), input);
@@ -65,10 +65,10 @@ fn correct_impl_output() {
                     async move { Ok(()) }
                 }
 
-                type __real_async_trait_impl_TypeFor_open<'a> = __real_async_trait_impl_ExistentialTypeFor_open<'a>;
-                type __real_async_trait_impl_TypeFor_read<'a> = __real_async_trait_impl_ExistentialTypeFor_read<'a>;
-                type __real_async_trait_impl_TypeFor_write<'a> = __real_async_trait_impl_ExistentialTypeFor_write<'a>;
-                type __real_async_trait_impl_TypeFor_close<'a> = __real_async_trait_impl_ExistentialTypeFor_close<'a>;
+                type __real_async_trait_impl_TypeFor_open<'a> = __real_async_trait_impl_ExistentialTypeFor_open<'a> where Self: 'a;
+                type __real_async_trait_impl_TypeFor_read<'a> = __real_async_trait_impl_ExistentialTypeFor_read<'a> where Self: 'a;
+                type __real_async_trait_impl_TypeFor_write<'a> = __real_async_trait_impl_ExistentialTypeFor_write<'a> where Self: 'a;
+                type __real_async_trait_impl_TypeFor_close<'a> = __real_async_trait_impl_ExistentialTypeFor_close<'a> where Self: 'a;
             }
             type __real_async_trait_impl_ExistentialTypeFor_open<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + ::core::marker::Send + 'a;
             type __real_async_trait_impl_ExistentialTypeFor_read<'a> = impl ::core::future::Future<Output = Result<usize, Errno>> + 'a;
